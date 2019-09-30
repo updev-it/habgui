@@ -1,0 +1,31 @@
+{
+  "name": "habgui",
+  "version": "1.0.0",
+  "main": "index.js",
+  "author": "Bas van Wetten <bas.van.wetten@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "autoprefixer": "^9.6.1",
+    "babel-core": "^6.26.3",
+    "babel-preset-env": "^1.7.0",
+    "babel-preset-react": "^6.24.1",
+    "lodash": "^4.17.15",
+    "parcel-bundler": "^1.12.3",
+    "postcss-modules": "^1.4.1",
+    "sass": "^1.22.12"
+  },
+  "dependencies": {
+    "bootstrap": "^4.3.1",
+    "cross-env": "^6.0.0",
+    "idb": "^4.0.4",
+    "jquery": "^3.4.1",
+    "popper.js": "^1.15.0",
+    "react": "^16.9.0",
+    "react-dom": "^16.9.0"
+  },
+  "scripts": {
+    "prebuild": "rm -rf dist.*",
+    "build": "cross-env NODE_ENV=development parcel build src/index.html --out-dir dist.dev/ --no-minify",
+    "start": "cross-env NODE_ENV=development parcel src/index.html --out-dir dist.dev/ --open"
+  }
+}

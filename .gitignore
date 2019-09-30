@@ -1,0 +1,8 @@
+.*/
+!.vscode
+/*.log
+
+node_modules/
+bower_components/
+dist.dev/
+dist.prod/
