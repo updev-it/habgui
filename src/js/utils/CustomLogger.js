@@ -1,4 +1,4 @@
-export const LogLevel = Object.freeze({ "ERROR": 0, "WARN": 1, "LOG": 2, "INFO": 2, "DEBUG": 3});
+export const LogLevel = Object.freeze({ "ERROR": 0, "WARN": 1, "LOG": 2, "INFO": 2, "DEBUG": 3, "TRACE": 9, "VERBOSE": 9});
 
 export class CustomLogger {
 
@@ -12,50 +12,58 @@ export class CustomLogger {
 
             let currentLogLevel = logLevel;
 
-            let enableLoging = true, isSaveLog = false,
+            let enableLogging = true, isSaveLog = false,
                 logArray = {
-                    logs: [],
-                    errors: [],
-                    warns: [],
-                    infos: [],
-                    debugs: []
+                    log: [],
+                    error: [],
+                    warn: [],
+                    info: [],
+                    debug: [],
+                    trace: []
                 };
 
             return {
                 log: function () {
-                    this.addLog("logs", arguments);
-                    enableLoging && originalConsole.log && currentLogLevel >= LogLevel.INFO && originalConsole.log.apply(originalConsole, Array.prototype.concat.apply(["[LOG]".padEnd(7), "::"], arguments));
+                    // this.addLog("log", arguments);
+                    enableLogging && originalConsole.log && currentLogLevel >= LogLevel.INFO && originalConsole.log.apply(originalConsole, Array.prototype.concat.apply(["[LOG]".padEnd(7), "::"], arguments));
                 },
                 warn: function () {
-                    this.addLog("warns", arguments);
-                    enableLoging && originalConsole.warn && currentLogLevel >= LogLevel.WARN && originalConsole.warn.apply(originalConsole, Array.prototype.concat.apply(["[WARN]".padEnd(7), "::"], arguments));
+                    // this.addLog("warn", arguments);
+                    enableLogging && originalConsole.warn && currentLogLevel >= LogLevel.WARN && originalConsole.warn.apply(originalConsole, Array.prototype.concat.apply(["[WARN]".padEnd(7), "::"], arguments));
                 },
                 error: function () {
-                    this.addLog("errors", arguments);
-                    enableLoging && originalConsole.error && currentLogLevel >= LogLevel.ERROR && originalConsole.error.apply(originalConsole, Array.prototype.concat.apply(["[ERROR]".padEnd(7), "::"], arguments));
+                    // this.addLog("error", arguments);
+                    enableLogging && originalConsole.error && currentLogLevel >= LogLevel.ERROR && originalConsole.error.apply(originalConsole, Array.prototype.concat.apply(["[ERROR]".padEnd(7), "::"], arguments));
                 },
                 info: function () {
-                    this.addLog("infos", arguments);
-                    enableLoging && originalConsole.info && currentLogLevel >= LogLevel.LOG && originalConsole.info.apply(originalConsole, Array.prototype.concat.apply(["[INFO]".padEnd(7), "::"], arguments));
+                    // this.addLog("info", arguments);
+                    enableLogging && originalConsole.info && currentLogLevel >= LogLevel.LOG && originalConsole.info.apply(originalConsole, Array.prototype.concat.apply(["[INFO]".padEnd(7), "::"], arguments));
                 },
                 debug: function () {
-                    this.addLog("debugs", arguments);
-                    enableLoging && originalConsole.info && currentLogLevel >= LogLevel.DEBUG && originalConsole.debug.apply(originalConsole, Array.prototype.concat.apply(["[DEBUG]".padEnd(7), "::"], arguments));
+                    // this.addLog("debug", arguments);
+                    enableLogging && originalConsole.debug && currentLogLevel >= LogLevel.DEBUG && originalConsole.debug.apply(originalConsole, Array.prototype.concat.apply(["[DEBUG]".padEnd(7), "::"], arguments));
+                },
+                trace: function () {
+                    // this.addLog("trace", arguments);
+                    enableLogging && originalConsole.debug && currentLogLevel >= LogLevel.TRACE && originalConsole.trace.apply(originalConsole, Array.prototype.concat.apply(["[TRACE]".padEnd(7), "::"], arguments));
+                },
+                dir: function () {
+                    enableLogging && originalConsole.info && originalConsole.dir.apply(originalConsole, arguments);
                 },
                 saveLog: function (bool) {
                     isSaveLog = bool;
                 },
                 disableLoging() {
-                    enableLoging = false;
+                    enableLogging = false;
                 },
-                enableLoging() {
-                    enableLoging = true;
+                enableLogging() {
+                    enableLogging = true;
                 },
                 addLog: function (array, ...args) {
                     if (!isSaveLog) {
                         return;
                     }
-                    logArray[array || "logs"].push(args);
+                    logArray[array || "log"].push(args);
                 },
                 logArray: function () {
                     return logArray;
@@ -64,7 +72,6 @@ export class CustomLogger {
                     originalConsole.clear.apply(...args);
                 }
             };
-
         }
 
         if (typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope) {

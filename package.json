@@ -7,8 +7,11 @@
   "devDependencies": {
     "autoprefixer": "^9.6.1",
     "babel-core": "^6.26.3",
+    "babel-eslint": "^10.0.3",
     "babel-preset-env": "^1.7.0",
     "babel-preset-react": "^6.24.1",
+    "eslint": "^6.5.0",
+    "eslint-plugin-react": "^7.14.3",
     "lodash": "^4.17.15",
     "parcel-bundler": "^1.12.3",
     "postcss-modules": "^1.4.1",
@@ -26,6 +29,7 @@
   "scripts": {
     "prebuild": "rm -rf dist.*",
     "build": "cross-env NODE_ENV=development parcel build src/index.html --out-dir dist.dev/ --no-minify",
-    "start": "cross-env NODE_ENV=development parcel src/index.html --out-dir dist.dev/ --open"
+    "start": "cross-env NODE_ENV=development parcel src/index.html --out-dir dist.dev/ --open",
+    "test:eslint": "eslint src/ --ext .js --ext .jsx"
   }
 }
