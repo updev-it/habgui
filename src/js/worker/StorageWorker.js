@@ -1,9 +1,12 @@
 import { Store } from '../storage';
-import { CustomLogger } from '../utils';
-import { LogLevel } from '../utils/CustomLogger';
+import { CustomLogger, LogLevel } from '../utils';
 
 class StorageWorker {
     constructor(worker) {
+        // Initialize custom logger
+        this.logger = CustomLogger.newConsole(console, LogLevel.DEBUG);
+        this.logger.clear();
+        
         // Keep track of connection state
         this.connected = false;
 
@@ -43,7 +46,7 @@ class StorageWorker {
     async incomingMessage(messageEvent) {
         let result;
         const messageContent = messageEvent.data;
-        console.trace(`[StorageWorker] << `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
+        this.logger.trace(`[StorageWorker] << `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
 
         try {
             switch (messageContent.type) {
@@ -51,7 +54,7 @@ class StorageWorker {
                     let host = messageContent.host;
                     let port = messageContent.port;
                     if (!host || !port || isNaN(port)) {
-                        console.warn(`[StorageWorker] Invalid or unspecificied host:post (${host}:${port})`);
+                        this.logger.warn(`[StorageWorker] Invalid or unspecificied host:post (${host}:${port})`);
                     } else {
                         this.store.connect(host, port);
                     }
@@ -66,11 +69,14 @@ class StorageWorker {
                         this.store.get(messageContent.storeName, messageContent.objectID, messageContent.options).then(result => {
                             this.postMessage({ type: messageContent.type, result: result, msgID: messageContent.msgID });
                         }).catch(error => {
-                            console.error(error);
-                        }
-                        );
+                            console.warn(error);
+                        });
                     } else {
-
+                        this.store.getAll(messageContent.storeName, messageContent.options).then(result => {
+                            this.postMessage({ type: messageContent.type, result: result, msgID: messageContent.msgID });
+                        }).catch(error => {
+                            console.warn(error);
+                        });
                     }
                     break;
                 }
@@ -79,14 +85,14 @@ class StorageWorker {
                 }
             }
         } catch (error) {
-            console.warn('[StorageWorker] Error', messageContent.type, error);
+            this.logger.error('[StorageWorker] Error', messageContent.type, error);
             this.postMessage({ type: error.type, result: error.toString(), isError: true, msgID: messageContent.msgID });
         }
     }
 
     postMessage(messageContent) {
         if (this.port && typeof this.port.postMessage === 'function') {
-            console.trace(`[StorageWorker] >> `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
+            this.logger.trace(`[StorageWorker] >> `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
             try {
                 this.port.postMessage(messageContent);
             } catch (error) {
@@ -100,8 +106,5 @@ class StorageWorker {
         }
     }
 }
-
-CustomLogger.enable(LogLevel.DEBUG);
-console.clear();
 
 const worker = new StorageWorker(self);

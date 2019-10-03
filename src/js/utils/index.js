@@ -1,2 +1,2 @@
 export { customFetch, isIterable, arrayToObject } from './Utils.js';
-export { CustomLogger } from './CustomLogger.js';
+export { CustomLogger, LogLevel } from './CustomLogger.js';
