@@ -1,5 +1,4 @@
 import { defaults } from 'lodash';
-// import { reject } from 'q';
 
 const FETCH_TIMEOUT = 5000;
 
@@ -22,9 +21,9 @@ export async function customFetch(url, options) {
 
     return fetch(request, options).catch(error => {
         if (error.name === 'AbortError') {
-            return reject(`Timeout (${options.timeout} ms) fetching '${url}'`);
+            return Promise.reject({ type: "error", message: `Timeout (${options.timeout} ms) fetching '${url}'`, isError: true });
         } else {
-            return reject(`Error occured: '${error}'`);
+            return Promise.reject({ type: "error", message: `Failed to fetch '${url}'`, isError: true });
         }
     });
 }

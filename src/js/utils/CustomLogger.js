@@ -2,7 +2,7 @@ export const LogLevel = Object.freeze({ "ERROR": 0, "WARN": 1, "LOG": 2, "INFO":
 
 export class CustomLogger {
 
-    static newConsole (originalConsole, logLevel) {
+    static newConsole (originalConsole, logLevel, logPrefix = "") {
 
         if (!originalConsole) {
             origConsole = {};
@@ -23,27 +23,27 @@ export class CustomLogger {
         return {
             log: function () {
                 // this.addLog("log", arguments);
-                enableLogging && originalConsole.log && currentLogLevel >= LogLevel.INFO && originalConsole.log.apply(originalConsole, Array.prototype.concat.apply(["[LOG]".padEnd(7), "::"], arguments));
+                enableLogging && originalConsole.log && currentLogLevel >= LogLevel.INFO && originalConsole.log.apply(originalConsole, Array.prototype.concat.apply(["[LOG]".padEnd(7), "::", logPrefix], arguments));
             },
             warn: function () {
                 // this.addLog("warn", arguments);
-                enableLogging && originalConsole.warn && currentLogLevel >= LogLevel.WARN && originalConsole.warn.apply(originalConsole, Array.prototype.concat.apply(["[WARN]".padEnd(7), "::"], arguments));
+                enableLogging && originalConsole.warn && currentLogLevel >= LogLevel.WARN && originalConsole.warn.apply(originalConsole, Array.prototype.concat.apply(["[WARN]".padEnd(7), "::", logPrefix], arguments));
             },
             error: function () {
                 // this.addLog("error", arguments);
-                enableLogging && originalConsole.error && currentLogLevel >= LogLevel.ERROR && originalConsole.error.apply(originalConsole, Array.prototype.concat.apply(["[ERROR]".padEnd(7), "::"], arguments));
+                enableLogging && originalConsole.error && currentLogLevel >= LogLevel.ERROR && originalConsole.error.apply(originalConsole, Array.prototype.concat.apply(["[ERROR]".padEnd(7), "::", logPrefix], arguments));
             },
             info: function () {
                 // this.addLog("info", arguments);
-                enableLogging && originalConsole.info && currentLogLevel >= LogLevel.LOG && originalConsole.info.apply(originalConsole, Array.prototype.concat.apply(["[INFO]".padEnd(7), "::"], arguments));
+                enableLogging && originalConsole.info && currentLogLevel >= LogLevel.LOG && originalConsole.info.apply(originalConsole, Array.prototype.concat.apply(["[INFO]".padEnd(7), "::", logPrefix], arguments));
             },
             debug: function () {
                 // this.addLog("debug", arguments);
-                enableLogging && originalConsole.debug && currentLogLevel >= LogLevel.DEBUG && originalConsole.debug.apply(originalConsole, Array.prototype.concat.apply(["[DEBUG]".padEnd(7), "::"], arguments));
+                enableLogging && originalConsole.debug && currentLogLevel >= LogLevel.DEBUG && originalConsole.debug.apply(originalConsole, Array.prototype.concat.apply(["[DEBUG]".padEnd(7), "::", logPrefix], arguments));
             },
             trace: function () {
                 // this.addLog("trace", arguments);
-                enableLogging && originalConsole.debug && currentLogLevel >= LogLevel.TRACE && originalConsole.trace.apply(originalConsole, Array.prototype.concat.apply(["[TRACE]".padEnd(7), "::"], arguments));
+                enableLogging && originalConsole.debug && currentLogLevel >= LogLevel.TRACE && originalConsole.trace.apply(originalConsole, Array.prototype.concat.apply(["[TRACE]".padEnd(7), "::", logPrefix], arguments));
             },
             dir: function () {
                 enableLogging && originalConsole.info && originalConsole.dir.apply(originalConsole, arguments);

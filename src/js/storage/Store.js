@@ -5,6 +5,7 @@ import { defaults, isEqual } from 'lodash';
 // Local imports
 import { customFetch, isIterable, arrayToObject, CustomLogger, LogLevel } from '../utils';
 import { ObjectModel } from './ObjectModel';
+import { EventEmitter } from 'events';
 
 /*eslint no-unused-vars: ["error", { "args": "none" }]*/
 
@@ -15,7 +16,7 @@ import { ObjectModel } from './ObjectModel';
  * @class Store
  * @extends {EventTarget}
  */
-export class Store extends EventTarget {
+export class Store extends EventEmitter {
 
     /**
      *Creates an instance of Store.
@@ -26,13 +27,14 @@ export class Store extends EventTarget {
         super();
 
         // Initialize custom logger
-        this.logger = CustomLogger.newConsole(console, LogLevel.DEBUG);
-        this.logger.clear();
+        this.logger = CustomLogger.newConsole(console, LogLevel.DEBUG, "[Store]");
 
         // Maintain a list of active/running REST API queries
         this.activeQueries = {};
+
         // Will contain entries like url:time - to keep track of when a query was last refreshed
         this.lastRefresh = {};
+        this.expireDurationMS = 1000 * 60 * 60; // 1 hour cache for `getAll`
 
         this.connected = false;
         this.storeName = storeName;
@@ -43,7 +45,7 @@ export class Store extends EventTarget {
 
         // During development remove existing database regardless of version
         if (process.env.mode === 'development') {
-            this.logger.debug(`[Store] Removing existing datastore '${storeName}'`);
+            this.logger.debug(`Removing existing datastore '${storeName}'`);
             deleteDB(storeName);
         }
     }
@@ -57,58 +59,72 @@ export class Store extends EventTarget {
      * @memberof Store
      */
     async connect(host = 'localhost', port = 8080) {
+        // Cleanup old connection if applicable
+        this.dispose();
+
         this.host = host;
         this.port = port;
         this.db = await openDB(this.storeName, ObjectModel.currentVersion(), {
             upgrade: (db, oldVersion, newVersion, transaction) => {
-                this.logger.debug(`[Store] Upgrading IndexedDB datastore '${db.name}:${newVersion}'`);
+                this.logger.debug(`Upgrading IndexedDB datastore '${db.name}:${newVersion}'`);
 
                 // Remove old objectStores
                 for (let objectStore of db.objectStoreNames) {
-                    this.logger.debug(`[Store] Removing old objectStore '${objectStore}'`);
+                    this.logger.debug(`Removing old objectStore '${objectStore}'`);
                     db.deleteObjectStore(objectStore);
                 }
 
                 // Create objectStores
                 for (let objectStructure of ObjectModel.getAsArray()) {
                     if (objectStructure.key) {
-                        this.logger.debug(`[Store] Creating object store '${objectStructure.id}' with key '${objectStructure.id}:${objectStructure.key}'`);
+                        this.logger.debug(`Creating object store '${objectStructure.id}' with key '${objectStructure.key}'`);
                         db.createObjectStore(objectStructure.id, {
                             keyPath: objectStructure.key
                         });
                     } else {
-                        this.logger.debug(`[Store] Creating object store '${objectStructure.id}'`);
+                        this.logger.debug(`Creating object store '${objectStructure.id}'`);
                         db.createObjectStore(objectStructure.id, { autoIncrement: true });
                     }
                 }
+
+                this.logger.info(`Database was successfully initialized`);
+                this.emit("initialized", { message: "Database was successfully initialized" });
             },
-            blocked() {
-                this.logger.warn('[Store] This connection is blocked by previous versions of the database.');
+            blocked: () => {
+                this.logger.warn('This connection is blocked by previous versions of the database.');
             },
-            blocking() {
-                this.logger.warn('[Store] This connection is blocking a future version of the database from opening.');
+            blocking: () => {
+                this.logger.warn('This connection is blocking a future version of the database from opening.');
             }
         }).catch(error => {
-            this.logger.error(`[Store] Error: ${error}`);
+            this.logger.error(`Unable to initialize database: ${error.message}`);
+            this.emit("error", { message: `Unable to initialize indexedDB: ${error.message}`, isError: true });
         });
 
-        // 
-        const urlRESTApi = `http://${host}:${port}`
-        const requests = ObjectModel.getAsArray().filter(item => item.onStart).map(item => customFetch(`${urlRESTApi}/${item.uri}`, { timeout: this.timeout })
-            .then(response => response.json()).then(json => {
-                this.initializeObjectStore(item.id, json);
+
+        if (this.db) {
+            let restApiUrl = `http://${host}:${port}`
+            let requests = ObjectModel.getAsArray()
+                .filter(item => item.onStart)
+                .map(item => customFetch(`${restApiUrl}/${item.uri}`, { timeout: this.timeout })
+                    .then(response => response.json())
+                    .then(json => {
+                        this.initializeObjectStore(item.id, json);
+                    }));
+
+            // Wait for all requests (promises) to complete and register SSE
+            return Promise.all([...requests]).then(() => {
+                this.emit("connecting", { detail: this.host });
+                this.eventSource = new EventSource(`${restApiUrl}/rest/events`);
+                this.eventSource.onopen = this.sseOpen.bind(this);
+                this.eventSource.onmessage = this.sseMessageReceived.bind(this);
+                this.eventSource.onerror = this.sseError.bind(this);
             }).catch(error => {
-                this.logger.warn(error);
-            }));
+                this.emit("error", { message: error.message, isError: true });
+            });
+        };
 
-        // Wait for all requests (promises) to complete and register SSE
-        return Promise.all(requests).then(() => {
-            this.dispatchEvent(new CustomEvent('connecting', { detail: this.host }));
-            this.eventSource = new EventSource(`${urlRESTApi}/rest/events`);
-            this.eventSource.onopen = this.sseOpen.bind(this);
-            this.eventSource.onmessage = this.sseMessageReceived.bind(this);
-            this.eventSource.onerror = this.sseError.bind(this);
-        });
+        return this.db;
     }
 
     /**
@@ -126,7 +142,7 @@ export class Store extends EventTarget {
                 this.eventSource[eventHandler] = null;
             });
             this.eventSource.close();
-            this.dispatchEvent(new CustomEvent('disconnected', { detail: this.host }));
+            this.emit("disconnected", { detail: this.host });
         }
         this.activeQueries = {};
         this.lastRefresh = {};
@@ -151,7 +167,9 @@ export class Store extends EventTarget {
 
         // Validate received event message
         if (!data || !data.payload || !data.type || !data.topic) {
-            this.logger.warn(`[SSE] Unknown format: type: ${data.type}, topic: ${data.topic}, payload: ${data.payload}`);
+            const warningMessage = `SSE: Unknown format: type: ${data.type}, topic: ${data.topic}, payload: ${data.payload}`;
+            this.logger.warn(warningMessage);
+            this.emit("warn", { message: warningMessage, isError: false });
             return;
         }
 
@@ -159,25 +177,33 @@ export class Store extends EventTarget {
             // Additions
             case 'ItemAddedEvent': {
                 const newItem = JSON.parse(data.payload);
-                this.insert(storeName, newItem);
+                this.insert(storeName, newItem).catch(error => {
+                    this.emit("error", { message: error.message, isError: true });
+                });
                 return;
             }
             // Updates
             case 'ItemUpdatedEvent': {
                 const [updatedItem, previousItem] = JSON.parse(data.payload);
-                this.insert(storeName, updatedItem);
+                this.insert(storeName, updatedItem).catch(error => {
+                    this.emit("error", { message: error.message, isError: true });
+                });
                 return;
             }
             // State changed
             case 'ItemStateEvent': {
                 const newState = JSON.parse(data.payload);
-                this.update(storeName, itemName, fieldName, newState.value);
+                this.update(storeName, itemName, fieldName, newState.value).catch(error => {
+                    this.emit("error", { message: error.message, isError: true });
+                });
                 return;
             }
             // Removals
             case 'ItemRemovedEvent': {
                 const item = JSON.parse(data.payload);
-                this.remove(storeName, item);
+                this.remove(storeName, item).catch(error => {
+                    this.emit("error", { message: error.message, isError: true });
+                });
                 return;
             }
             // Ignored events
@@ -196,8 +222,13 @@ export class Store extends EventTarget {
             case 'ThingStatusInfoChangedEvent': {
                 return;
             }
+            default: {
+                const warningMessage = `SSE: Unhandled SSE: ${data.type}`;
+                this.logger.warn(warningMessage);
+                this.emit("warn", { message: warningMessage, isError: false });
+                break;
+            }
         }
-        this.logger.debug(`[SSE] Unhandled SSE`, data.type);
     }
 
     /**
@@ -207,9 +238,11 @@ export class Store extends EventTarget {
      * @memberof Store
      */
     sseOpen(event) {
+        const message = `Connection to REST API @ 'http://${this.host}:${this.port}' established`;
+
         this.connected = true;
-        this.dispatchEvent(new CustomEvent('connected', { detail: { host: this.host, message: event } }));
-        this.logger.info(`[SSE] Connection to REST API @ 'http://${this.host}:${this.port}' established`);
+        this.logger.info(message);
+        this.emit("connected", { message: message, detail: { host: this.host, message: event } });
     }
 
     /**
@@ -219,7 +252,9 @@ export class Store extends EventTarget {
      * @memberof Store
      */
     sseError(event) {
-        this.logger.warn(`[SSE]`, event);
+        const errorMessage = `SSE: ${event}`;
+        this.logger.error(errorMessage);
+        this.emit("error", { message: errorMessage, isError: true });
     }
 
     /**
@@ -232,30 +267,26 @@ export class Store extends EventTarget {
     async initializeObjectStore(storeName, jsonData) {
         if (isIterable(jsonData)) {
             let transaction = this.db.transaction(storeName, 'readwrite');
-            let store = transaction.store;
 
-            await store.clear().catch(error => {
-                this.logger.warn(`[Store] Failed to clear store '${storeName}'`);
-                throw error;
+            await transaction.store.clear().catch(error => {
+                throw new Error(`Failed to clear store '${storeName}'`);
             });
 
             for (let entry of jsonData) {
-                store.add(entry).catch(error => {
-                    this.logger.warn(`[Store] Failed to add to '${storeName}': ${entry}`);
-                    throw error;
+                transaction.store.add(entry).catch(error => {
+                    throw new Error(`Failed to add to '${storeName}': ${entry}`);
                 });
             }
 
             // API DOC : https://www.npmjs.com/package/idb#txdone
-            await transaction.done.catch(error => {
-                this.logger.warn(`[Store] Failed to initDatastore into '${storeName}'`);
-                throw error;
+            transaction.done.then(() => {
+                this.logger.debug(`Transaction successful: Added ${Object.keys(jsonData).length} entries to ${storeName} store`);
+            }).catch(error => {
+                throw new Error(`Transaction failed: 'initializeObjectStore' for '${storeName}'`);
             });
-
-            this.logger.debug(`[Store] Added ${Object.keys(jsonData).length} entries to ${storeName} store`);
         }
         else {
-            this.logger.warn(`[Store] Unknown or invalid data structure: '${jsonData}'`);
+            throw new Error(`Unknown or invalid data structure: '${jsonData}'`);
         }
     }
 
@@ -300,20 +331,28 @@ export class Store extends EventTarget {
                     .then(jsonData => this.insert(storeName, jsonData))
                     .catch(error => {
                         newEntry = Promise.resolve({ result: undefined });
-                        this.logger.warn(`[Store] Failed to read from store '${storeName}' - ${objectID} (REST API query failed for ${uri}: ${error.message})`);
+                        this.logger.warn(`Failed to read from store '${storeName}' - ${objectID} (REST API query failed for ${uri}: ${error.message})`);
                     });
             } else {
                 newEntry = Promise.resolve({ result: undefined });
                 throw new Error(`No single item queries allowed`);
             }
         } catch (error) {
-            this.logger.warn(`[Store] Failed to read from store '${storeName}' - ${objectID} (${error.message})`);
+            this.logger.warn(`Failed to read from store '${storeName}' - ${objectID} (${error.message})`);
             dataStoreEntry = null;
         } finally {
             return dataStoreEntry || newEntry;
         }
     }
 
+    /**
+     *
+     *
+     * @param {*} storeName
+     * @param {*} options
+     * @returns
+     * @memberof Store
+     */
     getAll(storeName, options) {
         let dataStoreEntries;
         let newEntries;
@@ -338,19 +377,19 @@ export class Store extends EventTarget {
             // Get current values from datastore
             dataStoreEntries = transaction.store.getAll();
 
-            // if (this.isCacheStillValid(uri) && !options.forceRefresh) {
-            //     return dataStoreEntries;
-            // }
+            if (this.isCacheStillValid(url) && !options.forceRefresh) {
+                return dataStoreEntries;
+            }
 
             // Query REST API for actual/current state
             newEntries = this.queryApi(url)
                 .then(jsonData => this.insertAll(storeName, jsonData))
                 .catch(error => {
-                    this.logger.warn(`[Store] Failed to read from store '${storeName}' (REST API query failed for ${uri}: ${error.message})`);
+                    this.logger.warn(`Failed to read from store '${storeName}' (REST API query failed for ${uri}: ${error.message})`);
                     newEntries = Promise.resolve({ result: undefined });
                 });
         } catch (error) {
-            this.logger.warn(`[Store] Failed to read from store '${storeName}' - ${objectID} (${error.message})`);
+            this.logger.warn(`Failed to read from store '${storeName}' - ${objectID} (${error.message})`);
             dataStoreEntries = null;
         } finally {
             return dataStoreEntries || newEntries;
@@ -363,122 +402,161 @@ export class Store extends EventTarget {
      * 
      ********************************/
 
+    /**
+     *
+     *
+     * @param {*} storeName
+     * @param {*} item
+     * @returns
+     * @memberof Store
+     */
     async insert(storeName, item) {
-        try {
-            // Ensure a valid object is passed as a parameter
-            if (!item || typeof item !== 'object' || item.constructor !== Object) {
-                throw new Error(`Item '${item}' not a valid Object`);
-            }
+        // Ensure a valid object is passed as a parameter
+        if (!item || typeof item !== 'object' || item.constructor !== Object) {
+            throw new Error(`Item '${item}' not a valid Object`);
+        }
 
-            const transaction = this.db.transaction(storeName, 'readwrite');
-            const metaData = ObjectModel.getAsObject()[storeName];
-            const keyName = metaData.key;
-            const oldEntry = await transaction.store.get(item[keyName]);
+        const transaction = this.db.transaction(storeName, 'readwrite');
+        const metaData = ObjectModel.getAsObject()[storeName];
+        const keyName = metaData.key;
+        const oldEntry = await transaction.store.get(item[keyName]);
 
-            transaction.store.put(item);
+        transaction.store.put(item);
 
-            // API DOC : https://www.npmjs.com/package/idb#txdone
-            await transaction.done.catch(() => {
-                throw new Error(`Tranaction failed`);
-            });
+        // API DOC : https://www.npmjs.com/package/idb#txdone
+        transaction.done.then(() => {
+            this.logger.debug(`Transaction successful: Added '${item.name}' to ${storeName} store`);
+        }).catch(error => {
+            throw new Error(`Transaction failed: 'insert' for '${storeName}'`);
+        });
+
+        // Notify listeners
+        if (oldEntry) {
+            this.emit("storeItemChanged", { detail: { item: item, storeName: storeName } });
+        } else {
+            this.emit("storeItemAdded", { detail: { item: item, storeName: storeName } });
+
+            // Get all item metadata for new item
+            this.get(storeName, item[keyName], { forceRefresh: true });
+        }
+
+        return item;
+    }
+
+    /**
+     *
+     *
+     * @param {*} storeName
+     * @param {*} items
+     * @returns
+     * @memberof Store
+     */
+    async insertAll(storeName, items) {
+        if (!isIterable(items)) {
+            throw new Error(`Invalid object passed to 'insertAll' method`);
+        }
+
+        const transaction = this.db.transaction(storeName, 'readwrite');
+        const keyName = transaction.store.keyPath;
+        const oldStore = arrayToObject(await transaction.store.getAll(), keyName);
+
+        for (let newEntry of items) {
+            const key = newEntry[keyName];
+            const oldEntry = oldStore[key];
 
             // Notify listeners
             if (oldEntry) {
-                this.dispatchEvent(new CustomEvent('storeItemChanged', { detail: { value: item, storeName: storeName } }));
+                if (!isEqual(oldEntry, newEntry)) {
+                    this.emit("storeItemChanged", { detail: { value: newEntry, storeName: storeName } });
+                } else {
+                    // Don't notify for existing, un-changed items
+                }
             } else {
-                this.dispatchEvent(new CustomEvent('storeItemAdded', { detail: { value: item, storeName: storeName } }));
+                this.emit("storeItemAdded", { detail: { value: newEntry, storeName: storeName } });
 
                 // Get all item metadata for new item
                 this.get(storeName, item[keyName], { forceRefresh: true });
             }
-
-            return item;
-        } catch (error) {
-            this.logger.warn(`[Store] Failed to insert into store '${storeName}' - ${item.name} (${error.message})`);
+            transaction.store.put(newEntry);
         }
+
+        // API DOC : https://www.npmjs.com/package/idb#txdone
+        transaction.done.then(() => {
+            this.logger.debug(`Transaction successful: Added ${Object.keys(items).length} entries to ${storeName} store`);
+        }).catch(error => {
+            throw new Error(`Transaction failed: 'insertAll' for '${storeName}'`);
+        });
+
+        return items;
     }
 
-    async insertAll(storeName, items) {
-        try {
-            if (!isIterable(items)) {
-                throw new Error(`[Store] Invalid object passed to 'insertAll' method`);
-            }
-
-            const transaction = this.db.transaction(storeName, 'readwrite');
-            const keyName = transaction.store.keyPath;
-            const oldStore = arrayToObject(await transaction.store.getAll(), keyName);
-
-            for (let newEntry of items) {
-                const key = newEntry[keyName];
-                const oldEntry = oldStore[key];
-
-                // Notify listeners
-                if (oldEntry) {
-                    if (!isEqual(oldEntry, newEntry)) {
-                        this.dispatchEvent(new CustomEvent('storeItemChanged', { detail: { value: newEntry, storeName: storeName } }));
-                    } else {
-                        // Don't notify for existing, un-changed items
-                    }
-                } else {
-                    this.dispatchEvent(new CustomEvent('storeItemAdded', { detail: { value: newEntry, storeName: storeName } }));
-                }
-                await transaction.store.put(newEntry);
-            }
-            return items;
-        } catch (error) {
-            this.logger.warn(`[Store] Failed to insert into store '${storeName}' - ${Object.keys(items).length} items (${error.message})`);
-        }
-    }
-
+    /**
+     *
+     *
+     * @param {*} storeName
+     * @param {*} item
+     * @returns
+     * @memberof Store
+     */
     async remove(storeName, item) {
+        // Ensure a valid object is passed as a parameter
+        if (!item || typeof item !== 'object' || item.constructor !== Object) {
+            throw new Error(`Item '${item}' not a valid Object`);
+        }
+
+
+        const transaction = this.db.transaction(storeName, 'readonly');
+        const metaData = ObjectModel.getAsObject()[storeName];
+        const keyName = metaData.key;
+        const key = item[keyName];
+
         try {
-            // Ensure a valid object is passed as a parameter
-            if (!item || typeof item !== 'object' || item.constructor !== Object) {
-                throw new Error(`Item '${item}' not a valid Object`);
-            }
-
-            const transaction = this.db.transaction(storeName, 'readwrite');
-            const metaData = objectStructuresObject[storeName];
-            const keyName = metaData.key;
-            const key = item[keyName];
-
             transaction.store.delete(key);
+        } catch (error) {
+            Promise.reject(`Transaction failed: 'remove' for '${item.name}'`);
+            // throw new Error(`Transaction failed: 'remove' for '${item.name}'`);
+        }
+
+        // API DOC : https://www.npmjs.com/package/idb#txdone
+        transaction.done.then(() => {
+            this.logger.debug(`Transaction successful: Removed '${item.name}' from ${storeName} store`);
+        }).catch(error => {
+            throw new Error(`Transaction failed: 'remove' for '${item.name}'`);
+        });
+
+        // Notify listeners
+        this.emit("storeItemRemoved", { detail: { item: item, storeName: storeName } });
+
+        return null;
+
+    }
+
+    /**
+     *
+     *
+     * @param {*} storeName
+     * @param {*} itemName
+     * @param {*} fieldName
+     * @param {*} value
+     * @memberof Store
+     */
+    async update(storeName, itemName, fieldName, value) {
+        const transaction = this.db.transaction(storeName, 'readwrite');
+        const item = await transaction.store.get(itemName);
+
+        if (!item) {
+            throw new Error(`${itemName} not found`);
+        } else {
+            item[fieldName] = value;
+            transaction.store.put(item);
 
             // API DOC : https://www.npmjs.com/package/idb#txdone
             await transaction.done.catch(() => {
-                throw new Error(`Tranaction failed`);
+                throw new Error(`Transaction failed`);
             });
 
             // Notify listeners
-            this.dispatchEvent(new CustomEvent('storeItemRemoved', { detail: { value: item, storeName: storeName } }));
-
-            return null;
-        } catch (error) {
-            this.logger.warn(`[Store] Failed to remove from store '${storeName}' - ${item.name} (${error.message})`);
-        }
-    }
-
-    async update(storeName, itemName, fieldName, value) {
-        try {
-            const transaction = this.db.transaction(storeName, 'readwrite');
-            const item = await transaction.store.get(itemName);
-
-            if (!item) {
-                throw new Error(`${itemName} not found`);
-            } else {
-                item[fieldName] = value;
-                transaction.store.put(item);
-
-                // API DOC : https://www.npmjs.com/package/idb#txdone
-                await transaction.done.catch(() => {
-                    throw new Error(`Tranaction failed`);
-                });
-
-                // Notify listeners
-                this.dispatchEvent(new CustomEvent('storeItemChanged', { detail: { value: item, storeName: storeName } }));
-            }
-        } catch (error) {
-            this.logger.warn(`[Store] Failed to update store '${storeName}' - ${itemName} (${error.message})`);
+            this.emit("storeItemChanged", { detail: { item: item, storeName: storeName } });
         }
     }
 
@@ -513,5 +591,16 @@ export class Store extends EventTarget {
             });
 
         return this.activeQueries[url];
+    }
+
+    /**
+     * Returns true/false depending on the age of the query
+     *
+     * @param {*} uri
+     * @returns
+     * @memberof Store
+     */
+    isCacheStillValid(url) {
+        return this.lastRefresh[url] !== undefined && this.lastRefresh[url] + this.expireDurationMS > Date.now();
     }
 }

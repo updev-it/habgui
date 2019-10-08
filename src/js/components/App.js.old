@@ -1,0 +1,84 @@
+import React from "react";
+
+// Bootstrap imports
+import Badge from 'react-bootstrap/Badge';
+
+// FontAwesome imports
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
+import { faBolt } from '@fortawesome/free-solid-svg-icons'
+
+// Local imports
+import appStore from "../stores/AppStore";
+
+export class PowerContainer extends React.Component {
+    constructor() {
+        super();
+
+        this.state = {};
+
+        this.itemName = "VT_MQTT_DSMRReader_ElectricityCurrentlyDelivered";
+
+        this.connected = this.connected.bind(this);
+        this.disconnected = this.disconnected.bind(this);
+        this.storeItemChanged = this.storeItemChanged.bind(this);        
+    }
+
+    componentDidMount() {
+        appStore.on("connected", this.connected);
+        appStore.on("disconnected", this.disconnected);
+
+        // If appStore is already connected before component was mounted, launch 'connected' method manually
+        if (appStore.isConnected()) {
+            this.connected();
+        }        
+    }
+
+    componentWillUnmount() {
+        appStore.removeListener("connected", this.connected);
+        appStore.removeListener("disconnected", this.disconnected);
+        appStore.removeListener("storeItemChanged", this.storeItemChanged);
+    }
+
+    connected() {
+        const item = appStore.getItem(this.itemName);
+        appStore.on("storeItemChanged", this.storeItemChanged);
+        
+        this.setState(item);        
+    }
+
+    disconnected() {
+        this.state = {};
+    }
+
+    storeItemChanged(item) {
+        if (item.name === this.itemName) {
+            this.setState(item);
+        }
+    }
+
+    render() {
+        return <Power item={this.state} />;
+    }
+}
+
+// class Power extends React.Component {
+//     constructor(props) {
+//         super(props);
+//     }
+
+//     render() {
+//         if (this.props.item !== undefined) {
+//             return <div><h1>{this.this.props.item.name}</h1><p>State = {this.props.item.state}</p></div>;
+//         } else {
+//             return false;
+//         }
+//     }
+// }
+
+const Power = ({ item }) => {
+    if (item.state !== undefined) {
+        return <div><h2>{item.label} <Badge variant="secondary"><FontAwesomeIcon style={{color:"#ebcc34"}} icon={faBolt} /> {item.state * 1000} Watts</Badge></h2></div>;
+    } else {
+        return false;
+    }
+}

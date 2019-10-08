@@ -1,6 +1,6 @@
 import { arrayToObject } from '../utils';
 
-const currentVersion = 1.0;
+const currentVersion = 1;
 
 const objectStructures = [
     { id: 'items', uri: 'rest/items?metadata=.*', allowSingleItem: true, key: 'name', onStart: true, label: 'Items' },

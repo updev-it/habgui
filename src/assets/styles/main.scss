@@ -1,7 +1,14 @@
-@import "../../../node_modules/bootstrap/scss/bootstrap.scss";
+// Required
+// @import "node_modules/bootstrap/scss/functions";
+// @import "node_modules/bootstrap/scss/variables";
+// @import "node_modules/bootstrap/scss/mixins";
 
-$background-color: #999;
+@import "./customVariables";
 
-body {
-    background-color: $background-color;
-}
+@import "~bootstrap/scss/bootstrap.scss";
+
+// Optional
+// @import "node_modules/bootstrap/scss/reboot";
+// @import "node_modules/bootstrap/scss/badge";
+
+@import "./custom";

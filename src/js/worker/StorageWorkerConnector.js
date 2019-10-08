@@ -1,13 +1,14 @@
 import { StorageMessageQueue } from "./StorageMessageQueue";
 import { CustomLogger, LogLevel } from "../utils";
+import { EventEmitter } from "events";
 
-export class StorageWorkerConnector extends EventTarget {
+export class StorageWorkerConnector extends EventEmitter {
 
     constructor() {
         super();
 
         // Initialize custom logger
-        this.logger = CustomLogger.newConsole(window.console, LogLevel.DEBUG);
+        this.logger = CustomLogger.newConsole(window.console, LogLevel.DEBUG, "[StorageWorkerConnector]");
 
         // Keep track of connection state
         this.connected = false;
@@ -25,48 +26,53 @@ export class StorageWorkerConnector extends EventTarget {
 
     incomingMessage(messageEvent) {
         const messageContent = messageEvent.data;
-        this.logger.trace(`[StorageWorkerConnector] << `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
+        this.logger.trace(`<< `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
 
         // Received response to datastore method
-        if (messageContent.msgID !== undefined) {
-            const queueItem = this.queue.get(messageContent.msgID);
+        if (messageContent.messageId !== undefined) {
+            const queueItem = this.queue.get(messageContent.messageId);
 
             if (queueItem) {
                 if (messageContent.isError) {
-                    queueItem.accept(new Error(`[StorageWorkerConnector] Error occured in SharedWorker`, messageContent.result));
+                    queueItem.accept(new Error(`Error occured in SharedWorker`, messageContent.detail));
                 } else {
-                    queueItem.accept(messageContent.result);
+                    queueItem.accept(messageContent.detail);
                 }
             } else {
-                this.logger.warn(`[StorageWorkerConnector] Message ID not found in queue`, messageContent);
+                this.logger.warn(`Message ID '${messageContent.messageId}' with type '${messageContent.type}' not found in queue`);
             }
             return;
         }
 
+        // Received event message
         switch (messageContent.type) {
             case "storeItemChanged":
             case "storeItemAdded":
             case "storeItemRemoved":
             case "connecting": {
-                this.dispatchEvent(new CustomEvent(messageContent.type, { detail: messageContent }));
+                this.emit(messageContent.type, { detail: messageContent.detail });
                 break;
             }
             case "connected": {
                 this.connected = true;
-                this.dispatchEvent(new CustomEvent("connected", { detail: messageContent }));
+                this.emit(messageContent.type, { detail: messageContent.detail });
                 break;
             }
             case "disconnected": {
                 this.connected = false;
-                this.dispatchEvent(new CustomEvent('disconnected', { detail: messageContent }));
+                this.emit(messageContent.type, { detail: messageContent.detail });
+                this.port.close();
+                break;
+            }
+            case "error": {
                 break;
             }
             default: {
                 // Unknown event or regular message
                 if (!messageContent.type) {
-                    this.logger.warn(`[StorageWorkerConnector] Message received without 'type' property`, messageContent);
+                    this.logger.warn(`Message received without 'type' property`, messageContent);
                 } else {
-                    this.logger.warn(`[StorageWorkerConnector] Unknown message type ('${messageContent.type}') received`, messageContent);
+                    this.logger.warn(`Unknown message type ('${messageContent.type}') received`, messageContent);
                 }
                 break;
             }
@@ -86,7 +92,7 @@ export class StorageWorkerConnector extends EventTarget {
     postMessage(messageContent) {
         // If postMessage gets called before the SharedWorker has a connection it cannot be called
         if (this.port && typeof this.port.postMessage === 'function') {
-            this.logger.trace(`[StorageWorkerConnector] >> `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
+            this.logger.trace(`>> `, messageContent.type ? ["Message:", messageContent.type, messageContent] : messageContent);
             this.port.postMessage(messageContent);
         }
     }
@@ -100,10 +106,10 @@ export class StorageWorkerConnector extends EventTarget {
      */
     connect(host = 'localhost', port = 8080) {
         // Initialize worker datastore connection
-        let msg = { type: 'connect', host: host, port: port };
+        let messageContent = { type: 'connect', host: host, port: port };
 
-        this.dispatchEvent(new CustomEvent('connecting', { detail: msg }));
-        this.postMessage(msg);
+        this.emit("connecting", { detail: messageContent });
+        this.postMessage(messageContent);
     }
 
     /**
@@ -111,9 +117,9 @@ export class StorageWorkerConnector extends EventTarget {
      *
      * @memberof StorageWorkerConnector
      */
-    dispose() {
+    disconnect() {
         let msg = { type: 'disconnect' };
-        this.dispatchEvent(new CustomEvent('disconnect', { detail: msg }));
+        this.emit("disconnect");
         this.postMessage(msg);
     }
 
@@ -129,7 +135,7 @@ export class StorageWorkerConnector extends EventTarget {
     get(storeName, objectID = null, options = {}) {
         const type = 'get';
         const queueItem = this.queue.add(type);
-        let msg = { type: type, msgID: queueItem.messageID, storeName: storeName, objectID: objectID, options: options }
+        let msg = { type: type, messageId: queueItem.messageID, storeName: storeName, objectID: objectID, options: options }
         this.postMessage(msg);
         return queueItem.promise;
     }
