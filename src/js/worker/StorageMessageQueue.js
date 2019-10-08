@@ -9,7 +9,7 @@
  * @since  27-03-2019
  */
 
-const QUEUE_ITEM_TIMEOUT = 5000;
+const QUEUE_ITEM_TIMEOUT = 6000;
 
 /**
  *

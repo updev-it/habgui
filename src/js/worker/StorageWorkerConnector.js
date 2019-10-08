@@ -2,7 +2,7 @@ import { StorageMessageQueue } from "./StorageMessageQueue";
 import { CustomLogger, LogLevel } from "../utils";
 import { EventEmitter } from "events";
 
-export class StorageWorkerConnector extends EventEmitter {
+export default class StorageWorkerConnector extends EventEmitter {
 
     constructor() {
         super();
@@ -12,16 +12,6 @@ export class StorageWorkerConnector extends EventEmitter {
 
         // Keep track of connection state
         this.connected = false;
-
-        this.worker = new SharedWorker('StorageWorker.js');
-        this.port = this.worker.port;
-
-        // Initialize queue
-        this.queue = new StorageMessageQueue(this);
-
-        // Setup event handlers
-        this.worker.onerror = this.error.bind(this);
-        this.port.onmessage = this.incomingMessage.bind(this);
     }
 
     incomingMessage(messageEvent) {
@@ -83,6 +73,10 @@ export class StorageWorkerConnector extends EventEmitter {
         this.logger.error(messageError);
     }
 
+    isConnected() {
+        return this.connected;
+    }
+
     /**
      *
      *
@@ -105,11 +99,23 @@ export class StorageWorkerConnector extends EventEmitter {
      * @memberof StorageWorkerConnector
      */
     connect(host = 'localhost', port = 8080) {
-        // Initialize worker datastore connection
-        let messageContent = { type: 'connect', host: host, port: port };
+        if (!this.connected) {
+            // Initialize worker datastore connection
+            let messageContent = { type: 'connect', host: host, port: port };
 
-        this.emit("connecting", { detail: messageContent });
-        this.postMessage(messageContent);
+            this.worker = new SharedWorker('StorageWorker.js');
+            this.port = this.worker.port;
+
+            // Initialize queue
+            this.queue = new StorageMessageQueue(this);
+
+            // Setup event handlers
+            this.worker.onerror = this.error.bind(this);
+            this.port.onmessage = this.incomingMessage.bind(this);
+
+            this.emit("connecting", { detail: messageContent });
+            this.postMessage(messageContent);
+        }
     }
 
     /**
@@ -118,9 +124,11 @@ export class StorageWorkerConnector extends EventEmitter {
      * @memberof StorageWorkerConnector
      */
     disconnect() {
-        let msg = { type: 'disconnect' };
-        this.emit("disconnect");
-        this.postMessage(msg);
+        if (this.connected) {
+            let msg = { type: 'disconnect' };
+            this.emit("disconnect");
+            this.postMessage(msg);
+        }
     }
 
     /**

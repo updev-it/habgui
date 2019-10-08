@@ -3,17 +3,20 @@ import { createStore, applyMiddleware, compose } from "redux";
 import createSagaMiddleware from "redux-saga";
 
 // Local imports
+import StorageWorkerConnector from "../../worker/StorageWorkerConnector";
 import rootReducer from "../reducers/index";
-import apiSaga from "../redux-saga/api-saga";
+import apiSaga from "../saga/api";
 
-const initialiseSagaMiddleware = createSagaMiddleware();
-
-// const storeEnhancers = window.__REDUX_DEVTOOLS_EXTENSION_COMPOSE__ || compose;
+const saga = createSagaMiddleware({
+    context: {
+        worker: new StorageWorkerConnector()
+    }
+});
 
 const store = createStore(rootReducer,
-    applyMiddleware(initialiseSagaMiddleware)
+    applyMiddleware(saga)
 );
 
-initialiseSagaMiddleware.run(apiSaga);
+saga.run(apiSaga);
 
 export default store;
