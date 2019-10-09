@@ -1,7 +1,7 @@
 import { eventChannel, END } from 'redux-saga'
 import { take, call, put, fork, cancel, getContext } from 'redux-saga/effects'
-import { itemFetchAll } from '../actions';
-import { START_APP, STOP_APP, ITEM_CHANGED, APP_ERROR } from '../actions/actionTypes';
+import { itemFetchAll, itemRemoved, itemChanged, appError } from '../actions';
+import { START_APP, STOP_APP } from '../actions/actionTypes';
 
 function connect(worker) {
     return new Promise(resolve => {
@@ -24,8 +24,11 @@ function disconnect(worker) {
 function* subscribe(worker) {
 
     const channel = new eventChannel(emit => {
+        worker.on("storeItemRemoved", event => {
+            emit(itemRemoved(event));
+        });
         worker.on("storeItemChanged", event => {
-            emit({ type: ITEM_CHANGED, payload: event });
+            emit(itemChanged(event));
         });
         worker.on("disconnected", (event => {
             emit(END);
@@ -47,7 +50,7 @@ export function* workerSaga(worker) {
         yield put(itemFetchAll());
         yield call(subscribe, worker);
     } catch (error) {
-        yield put({ type: APP_ERROR, payload: error });
+        yield put(appError(error));
     }
 }
 

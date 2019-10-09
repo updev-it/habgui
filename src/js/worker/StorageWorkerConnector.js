@@ -103,8 +103,9 @@ export default class StorageWorkerConnector extends EventEmitter {
             // Initialize worker datastore connection
             let messageContent = { type: 'connect', host: host, port: port };
 
-            this.worker = new SharedWorker('StorageWorker.js');
-            this.port = this.worker.port;
+            // this.worker = new SharedWorker('StorageWorker.js');
+            this.worker = new Worker('StorageWorker.js');
+            this.worker.port instanceof MessagePort ? (this.port = this.worker.port) : (this.port = this.worker);
 
             // Initialize queue
             this.queue = new StorageMessageQueue(this);

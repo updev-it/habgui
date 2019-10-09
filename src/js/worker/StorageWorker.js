@@ -1,27 +1,27 @@
 import { Store } from '../storage';
 import { CustomLogger, LogLevel } from '../utils';
-import Message from '../messages/Message';
-import ErrorMessage from '../messages/ErrorMessage';
 
 class StorageWorker {
     constructor(worker) {
         // Initialize custom logger
         this.logger = CustomLogger.newConsole(console, LogLevel.DEBUG, "[StorageWorker]");
-        this.logger.clear();
+        // this.logger.clear();
 
         // Keep track of connection state
         this.connected = false;
 
-        this.port = worker;
         this.worker = worker;
+        this.port = worker;
         this.store = new Store('OpenHAB');
+
+        this.port.onmessage = this.incomingMessage.bind(this);
 
         // Shared workers need to wait for the 'connect' event
         // See: https://developer.mozilla.org/en-US/docs/Web/API/SharedWorker#Example
         this.worker.onconnect = event => {
             [this.port] = event.ports;
             this.port.onmessage = this.incomingMessage.bind(this);
-        };
+        };        
 
         this.store.on('storeItemChanged', event => {
             this.postMessage({ type: "storeItemChanged", detail: event.detail });
