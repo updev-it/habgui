@@ -44,7 +44,7 @@ export class Store extends EventEmitter {
         this.timeout = 5000;
 
         // During development remove existing database regardless of version
-        if (process.env.mode === 'development') {
+        if (false && process.env.mode === 'development') {
             this.logger.debug(`Removing existing datastore '${storeName}'`);
             deleteDB(storeName);
         }
@@ -88,7 +88,6 @@ export class Store extends EventEmitter {
                 }
 
                 this.logger.info(`Database was successfully initialized`);
-                this.emit("initialized", { message: "Database was successfully initialized" });
             },
             blocked: () => {
                 this.logger.warn('This connection is blocked by previous versions of the database.');
@@ -106,11 +105,15 @@ export class Store extends EventEmitter {
             let restApiUrl = `http://${host}:${port}`
             let requests = ObjectModel.getAsArray()
                 .filter(item => item.onStart)
-                .map(item => customFetch(`${restApiUrl}/${item.uri}`, { timeout: this.timeout })
-                    .then(response => response.json())
-                    .then(json => {
-                        this.initializeObjectStore(item.id, json);
-                    }));
+                .map(item => {
+                    const url = `${restApiUrl}/${item.uri}`;
+                    this.lastRefresh[url] = Date.now();
+                    customFetch(url, { timeout: this.timeout })
+                        .then(response => response.json())
+                        .then(json => {
+                            this.initializeObjectStore(item.id, json);
+                        });
+                });
 
             // Wait for all requests (promises) to complete and register SSE
             return Promise.all([...requests]).then(() => {
@@ -281,6 +284,7 @@ export class Store extends EventEmitter {
             // API DOC : https://www.npmjs.com/package/idb#txdone
             transaction.done.then(() => {
                 this.logger.debug(`Transaction successful: Added ${Object.keys(jsonData).length} entries to ${storeName} store`);
+                this.emit("initialized", { message: "IndexedDB initialized", detail: this.host });
             }).catch(error => {
                 throw new Error(`Transaction failed: 'initializeObjectStore' for '${storeName}'`);
             });
@@ -309,7 +313,7 @@ export class Store extends EventEmitter {
 
         const metaData = ObjectModel.getAsObject()[storeName];
         const uriParts = metaData.uri.split('?');
-        const uri = metaData.allowSingleItem === true ? `${uriParts[0]}/${objectID}?${uriParts[1]}` : `${uriParts[0]}?${uriParts[1]};`;
+        const uri = metaData.allowSingleItem === true ? `${uriParts[0]}/${objectID}?${uriParts[1]}` : `${uriParts[0]}?${uriParts[1]}`;
         const url = `http://${this.host}:${this.port}/${uri}`;
 
         try {
@@ -363,7 +367,7 @@ export class Store extends EventEmitter {
 
         const metaData = ObjectModel.getAsObject()[storeName];
         const uriParts = metaData.uri.split('?');
-        const uri = `${uriParts[0]}?${uriParts[1]};`;
+        const uri = `${uriParts[0]}?${uriParts[1]}`;
         const url = `http://${this.host}:${this.port}/${uri}`;
 
         try {
@@ -419,13 +423,17 @@ export class Store extends EventEmitter {
         const transaction = this.db.transaction(storeName, 'readwrite');
         const metaData = ObjectModel.getAsObject()[storeName];
         const keyName = metaData.key;
-        const oldEntry = await transaction.store.get(item[keyName]);
+        const oldEntry = await transaction.store.get(item[keyName]).catch(_ => {});
 
         transaction.store.put(item);
 
         // API DOC : https://www.npmjs.com/package/idb#txdone
-        transaction.done.then(() => {
-            this.logger.debug(`Transaction successful: Added '${item.name}' to ${storeName} store`);
+        await transaction.done.then(() => {
+            if (oldEntry) {
+                this.logger.debug(`Transaction successful: Updated '${item.name}' in ${storeName} store`);
+            } else {
+                this.logger.debug(`Transaction successful: Added '${item.name}' to ${storeName} store`);
+            }            
         }).catch(error => {
             throw new Error(`Transaction failed: 'insert' for '${storeName}'`);
         });
@@ -505,20 +513,20 @@ export class Store extends EventEmitter {
         }
 
 
-        const transaction = this.db.transaction(storeName, 'readonly');
+        const transaction = this.db.transaction(storeName, 'readwrite');
         const metaData = ObjectModel.getAsObject()[storeName];
         const keyName = metaData.key;
         const key = item[keyName];
 
-        try {
-            transaction.store.delete(key);
-        } catch (error) {
-            Promise.reject(`Transaction failed: 'remove' for '${item.name}'`);
-            // throw new Error(`Transaction failed: 'remove' for '${item.name}'`);
-        }
+        // try {
+        transaction.store.delete(key);
+        // } catch (error) {
+        //     return Promise.reject(`Transaction failed: 'remove' for '${item.name}'`);
+        //     // throw new Error(`Transaction failed: 'remove' for '${item.name}'`);
+        // }
 
         // API DOC : https://www.npmjs.com/package/idb#txdone
-        transaction.done.then(() => {
+        await transaction.done.then(() => {
             this.logger.debug(`Transaction successful: Removed '${item.name}' from ${storeName} store`);
         }).catch(error => {
             throw new Error(`Transaction failed: 'remove' for '${item.name}'`);

@@ -1,12 +1,12 @@
 import { eventChannel, END } from 'redux-saga'
 import { take, call, put, fork, cancel, getContext } from 'redux-saga/effects'
-import { itemFetchAll, itemRemoved, itemChanged, appError } from '../actions';
+import { itemFetchAll, itemAdded, itemRemoved, itemChanged, appError } from '../actions';
 import { START_APP, STOP_APP } from '../actions/actionTypes';
 
 function connect(worker) {
     return new Promise(resolve => {
         worker.connect("rancher.home.besqua.red", 18080);
-        worker.on("connected", () => {
+        worker.on("initialized", () => {
             resolve(worker);
         });
     });
@@ -24,6 +24,9 @@ function disconnect(worker) {
 function* subscribe(worker) {
 
     const channel = new eventChannel(emit => {
+        worker.on("storeItemAdded", event => {
+            emit(itemAdded(event));
+        });
         worker.on("storeItemRemoved", event => {
             emit(itemRemoved(event));
         });

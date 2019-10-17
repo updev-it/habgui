@@ -36,9 +36,14 @@ export default class StorageWorkerConnector extends EventEmitter {
 
         // Received event message
         switch (messageContent.type) {
-            case "storeItemChanged":
             case "storeItemAdded":
+                {
+                    this.emit(messageContent.type, { detail: messageContent.detail });
+                    break;
+                }
+            case "storeItemChanged":
             case "storeItemRemoved":
+            case "initialized":
             case "connecting": {
                 this.emit(messageContent.type, { detail: messageContent.detail });
                 break;

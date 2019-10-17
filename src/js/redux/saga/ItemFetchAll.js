@@ -9,6 +9,7 @@ export function* workerSaga() {
         yield put(itemFetchAllSuccess(items));
     } catch (error) {
         yield put(itemFetchAllFailed(error));        
+        yield put(ITEM_FETCH_ALL);
     }
 }
 

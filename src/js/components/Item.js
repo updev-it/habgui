@@ -1,38 +1,38 @@
+// External imports
+import _ from "lodash";
+
+// React imports
 import React from "react";
+
+// Redux imports
 import { connect } from "react-redux";
 import { itemCommand } from "../redux/actions";
+
 
 const mapStateToProps = (state, ownProps) => {
     const { itemName } = ownProps;
     return {
-        item: state.items[itemName]
+        item: _.find(state.items, { name: itemName})
     };
 };
 
-const mapDispatchToProps = (dispatch, ownProps) => {
-    const { itemName } = ownProps;
-    return {
-        switchOn: () => dispatch(itemCommand(itemName, "ON")),
-        switchOff: () => dispatch(itemCommand(itemName, "OFF"))
-    }
-}
+const ConnectedHGItem = ({ item, dispatch }) => {
 
-const ConnectedItem = ({ item, switchOn, switchOff }) => {
     if (item && item.name) {
         return (
             <div>
-                <p className="list-group-item" key={item.name}>
-                    {item.label !== "" ? item.label : item.name} : {item.state}
-            </p>
-                <button onClick={switchOn}>On</button>
-                <button onClick={switchOff}>Off</button>
+                <span className="d-block" style={{ margin: '0px', padding: '10px' }}>{item.label} : {item.state} %</span>                
             </div>
         )
     } else {
-        return null;
+        return (
+            <div>
+                <span className="d-block" style={{ margin: '0px', padding: '10px' }}>Not found</span>
+            </div>
+        )
     }
 }
 
-const Item = connect(mapStateToProps, mapDispatchToProps)(ConnectedItem);
+const HGItem = connect(mapStateToProps)(ConnectedHGItem);
 
-export default Item;
+export default HGItem;

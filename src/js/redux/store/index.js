@@ -17,6 +17,8 @@ const store = createStore(rootReducer,
     applyMiddleware(saga)
 );
 
+window.store = store;
+
 saga.run(apiSaga);
 
 export default store;

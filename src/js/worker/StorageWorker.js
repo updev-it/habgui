@@ -39,6 +39,9 @@ class StorageWorker {
             this.connected = true;
             this.postMessage({ type: "connected", message: event.message, detail: event.detail });
         });
+        this.store.on('initialized', event => {            
+            this.postMessage({ type: "initialized", message: event.message, detail: event.detail });
+        });
         this.store.on('disconnected', event => {
             this.connected = false;
             this.postMessage({ type: "disconnected", message: event.message, detail: event.detail });

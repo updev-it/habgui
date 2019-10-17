@@ -1,4 +1,16 @@
-import { ITEM_FETCH_ALL, ITEM_FETCH_ALL_SUCCESS, ITEM_FETCH_ALL_FAILED, ITEM_CHANGED, ITEM_COMMAND, START_APP, WORKER_ERROR, APP_ERROR, STOP_APP } from "./actionTypes";
+import {
+    ITEM_FETCH_ALL,
+    ITEM_FETCH_ALL_SUCCESS,
+    ITEM_FETCH_ALL_FAILED,
+    ITEM_ADDED,
+    ITEM_REMOVED,
+    ITEM_CHANGED,    
+    ITEM_COMMAND,
+    START_APP,
+    WORKER_ERROR,
+    APP_ERROR,
+    STOP_APP
+} from "./actionTypes";
 
 // Application actions
 export function startApp() {
@@ -23,12 +35,16 @@ export function itemFetchAllFailed(error) {
     return { type: ITEM_FETCH_ALL_FAILED, error };
 }
 
-export function itemChanged(payload) {
-    return { type: ITEM_CHANGED, payload };
+export function itemAdded(payload) {
+    return { type: ITEM_ADDED, payload };
 }
 
 export function itemRemoved(payload) {
     return { type: ITEM_REMOVED, payload };
+}
+
+export function itemChanged(payload) {
+    return { type: ITEM_CHANGED, payload };
 }
 
 export function itemCommand(payload, command) {
